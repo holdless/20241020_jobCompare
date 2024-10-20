@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Registration</title>
+    <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        img {
+            max-width: 100%;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>Image Registration using OpenCV.js</h2>
+
+        <!-- Input for the first image -->
+        <label for="img1">Upload First Image:</label>
+        <input type="file" id="img1" accept="image/*"><br>
+
+        <!-- Input for the second image -->
+        <label for="img2">Upload Second Image:</label>
+        <input type="file" id="img2" accept="image/*"><br><br>
+
+        <!-- Button to start registration -->
+        <button onclick="performRegistration()">Perform Image Registration</button>
+
+        <!-- Display transformation matrix -->
+        <div id="matrixOutput"></div>
+
+        <!-- Display the matching result image -->
+        <h3>Matching Result</h3>
+        <canvas id="matchingResult"></canvas>
+
+        <!-- Display the aligned second image -->
+        <h3>Aligned Second Image</h3>
+        <canvas id="alignedResult"></canvas>
+
+        <!-- Display the uploaded images -->
+        <h3>Uploaded Images</h3>
+        <div>
+            <!-- <img id="image1" src="" alt="First Image">
+            <img id="image2" src="" alt="Second Image"> -->
+            <canvas id='imageCanvas1'></canvas>
+            <canvas id='imageCanvas2'></canvas><br>
+        </div>
+    </div>
+
+
+
+
+    <script>
+        // Function to handle image upload and display
+        let img1Element = new Image();
+        let img2Element = new Image();
+        let canvas1 = document.getElementById('imageCanvas1');
+        let canvas2 = document.getElementById('imageCanvas2');
+        let ctx1 = canvas1.getContext('2d');
+        let ctx2 = canvas2.getContext('2d');
+
+        let isSelecting = false;
+        let selection = {x:0, uy:0, width:0, height:0}; 
+
+        document.getElementById('img1').onchange = function (event) {
+            // let img1 = document.getElementById('image1');
+            // img1.src = URL.createObjectURL(event.target.files[0]);
+            loadImage(event.target.files[0], img1Element, canvas1, ctx1);
+        };
+
+        document.getElementById('img2').onchange = function (event) {
+            // let img2 = document.getElementById('image2');
+            // img2.src = URL.createObjectURL(event.target.files[0]);
+            loadImage(event.target.files[0], img2Element, canvas2, ctx2);
+        };
+
+        function loadImage(file, imgElement, canvas, ctx) {
+            imgElement.src = URL.createObjectURL(file);
+            imgElement.onload = function () {
+                canvas.width = imgElement.width;
+                canvas.height = imgElement.height;
+                ctx.drawImage(imgElement, 0, 0);
+                if (canvas == canvas2) {
+                    performRegistration();
+                }
+
+            }
+        }
+
+        // Function to perform image registration and show matching result
+        function performRegistration() {
+            // let img1Element = document.getElementById('image1');
+            // let img2Element = document.getElementById('image2');
+
+            if (img1Element.src && img2Element.src) {
+                let img1 = cv.imread(img1Element);  // Read the first image
+                let img2 = cv.imread(img2Element);  // Read the second image
+
+                // Convert images to grayscale
+                let gray1 = new cv.Mat();
+                let gray2 = new cv.Mat();
+                cv.cvtColor(img1, gray1, cv.COLOR_RGBA2GRAY, 0);
+                cv.cvtColor(img2, gray2, cv.COLOR_RGBA2GRAY, 0);
+
+                // Use ORB detector to find keypoints and descriptors
+                let orb = new cv.AKAZE();
+                let keypoints1 = new cv.KeyPointVector();
+                let keypoints2 = new cv.KeyPointVector();
+                let descriptors1 = new cv.Mat();
+                let descriptors2 = new cv.Mat();
+                orb.detectAndCompute(gray1, new cv.Mat(), keypoints1, descriptors1);
+                orb.detectAndCompute(gray2, new cv.Mat(), keypoints2, descriptors2);
+
+                // Use BFMatcher to match descriptors
+                // let bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
+                let bf = new cv.BFMatcher();
+                // let matches = new cv.DMatchVector();
+                let matches = new cv.DMatchVectorVector();
+                // bf.match(descriptors1, descriptors2, matches);
+                bf.knnMatch(descriptors1, descriptors2, matches, 2);
+
+                // Filter good matches
+                let goodMatches = new cv.DMatchVector();
+
+                let counter = 0
+                let knnDistance_option = 0.7;
+                for (let i = 0; i < matches.size(); i++) {
+                    let match = matches.get(i);
+                    let dMatch1 = match.get(0);
+                    let dMatch2 = match.get(1);
+                    if (dMatch1.distance <= dMatch2.distance * parseFloat(knnDistance_option)) {
+                        goodMatches.push_back(dMatch1);
+                        counter++;
+                    }
+                    // goodMatches.push_back(match);
+                }
+
+                // Draw matching lines between two images
+                let imgMatches = new cv.Mat();
+                // cv.drawMatches(img1, keypoints1, img2, keypoints2, matches, imgMatches);
+                cv.drawMatches(img1, keypoints1, img2, keypoints2, goodMatches, imgMatches);
+
+                // Display matching result on the canvas
+                let matchingCanvas = document.getElementById('matchingResult');
+                cv.imshow(matchingCanvas, imgMatches);
+
+                // Prepare matched points
+                let srcPoints = [];
+                let dstPoints = [];
+                for (let i = 0; i < goodMatches.size(); i++) {
+                    srcPoints.push(keypoints1.get(goodMatches.get(i).queryIdx).pt.x);
+                    srcPoints.push(keypoints1.get(goodMatches.get(i).queryIdx).pt.y);
+                    dstPoints.push(keypoints2.get(goodMatches.get(i).trainIdx).pt.x);
+                    dstPoints.push(keypoints2.get(goodMatches.get(i).trainIdx).pt.y);
+                }
+                // for (let match of goodMatches) {
+                //     srcPoints.push(keypoints1.get(match.queryIdx).pt);
+                //     dstPoints.push(keypoints2.get(match.trainIdx).pt);
+                // }
+
+                // Convert points to Mat
+                let srcMat = new cv.Mat(srcPoints.length, 1, cv.CV_32FC2);
+                srcMat.data32F.set(srcPoints);
+                let dstMat = new cv.Mat(dstPoints.length, 1, cv.CV_32FC2);
+                dstMat.data32F.set(dstPoints);
+                //let srcMat = cv.matFromArray(srcPoints.length, 2, cv.CV_32FC2, [].concat(...srcPoints));
+                //let dstMat = cv.matFromArray(dstPoints.length, 2, cv.CV_32FC2, [].concat(...dstPoints));
+
+                // Calculate the transformation matrix using findHomography
+                let mask = new cv.Mat();
+                let h = cv.findHomography(srcMat, dstMat, cv.RANSAC, 1.0, mask);
+
+                if (h.empty()) {
+                    alert("homography matrix empty!");
+                    return;
+                }
+                else {
+                    console.log("h:", h);
+                    console.log("[", h.data64F[0], ",", h.data64F[1], ",", h.data64F[2]);
+                    console.log("", h.data64F[3], ",", h.data64F[4], ",", h.data64F[5]);
+                    console.log("", h.data64F[6], ",", h.data64F[7], ",", h.data64F[8], "]");
+                }
+                // Apply the homography to align the second image with the first
+                let alignedImg = new cv.Mat();
+                // let dsize = new cv.Size(img1.cols, img1.rows);
+                let dsize = new cv.Size(img2.cols, img2.rows);
+                cv.warpPerspective(img1, alignedImg, h, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+
+                // Display aligned second image on the canvas
+                let alignedCanvas = document.getElementById('alignedResult');
+                cv.imshow(alignedCanvas, alignedImg);
+
+                // Display the transformation matrix
+                document.getElementById('matrixOutput').innerHTML = `<h3>Transformation Matrix:</h3><pre>${h.data32F}</pre>`;
+
+                // Clean up
+                img1.delete();
+                img2.delete();
+                gray1.delete();
+                gray2.delete();
+                descriptors1.delete();
+                descriptors2.delete();
+                keypoints1.delete();
+                keypoints2.delete();
+                matches.delete();
+                imgMatches.delete();
+                srcMat.delete();
+                dstMat.delete();
+                mask.delete();
+                h.delete();
+                alignedImg.delete();
+            } else {
+                alert('Please upload two images.');
+            }
+        }
+
+        // mouse event
+        canvas1.onmousedown = (e) => {
+            isSelecting = true;
+            selection.x = e.offsetX;
+            selection.y = e.offsetY;
+        }
+
+        canvas1.onmousemove = function (e) {
+            if (isSelecting) {
+                ctx1.clearRect(0, 0, canvas1.width, canvas1.height);
+                ctx1.drawImage(img1Element, 0, 0);
+                selection.width = e.offsetX - selection.x;
+                selection.height = e.offsetY - selection.y;
+                ctx1.strokeStyle = 'red';
+                ctx1.lineWidth = 2;
+                ctx1.strokeRect(selection.x, selection.y, selection.width, selection.height);
+            }
+        };
+
+        canvas1.onmouseup = function () {
+            isSelecting = false;
+            applyTransparency();
+        };
+
+        function applyTransparency() {
+            ctx1.clearRect(0, 0, canvas1.width, canvas1.height);
+            ctx1.drawImage(img1Element, 0, 0);
+            ctx1.globalAlpha = 0.5;
+            ctx1.clearRect(selection.x, selection.y, selection.width, selection.height);
+            ctx1.globalAlpha = 1.0;
+            ctx1.strokeRect(selection.x, selection.y, selection.width, selection.height);
+
+            ctx2.clearRect(0, 0, canvas2.width, canvas2.height);
+            ctx2.drawImage(img2Element, 0, 0);
+            ctx2.globalAlpha = 0.5;
+            ctx2.clearRect(selection.x, selection.y, selection.width, selection.height);
+            ctx2.globalAlpha = 1.0;
+        }    
+    </script>
+</body>
+
+</html>
