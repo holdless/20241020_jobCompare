@@ -61,6 +61,7 @@
         let canvas2 = document.getElementById('canvas2');
         let ctx1 = canvas1.getContext('2d');
         let ctx2 = canvas2.getContext('2d');
+        let dragging = false;
 
         // 上傳影像處理
         document.getElementById('image1').addEventListener('change', (e) => {
@@ -93,19 +94,19 @@
         canvas1.addEventListener('mousedown', (e) => {
             startX = e.offsetX;
             startY = e.offsetY;
-            canvas1.addEventListener('mousemove', drawSelection);
+            if (selection && isInsideSelection(startX, startY)) {
+                dragging = true;
+                canvas1.addEventListener('mousemove', moveSelection);
+            } else {
+                canvas1.addEventListener('mousemove', drawSelection);
+            }
         });
 
         canvas1.addEventListener('mouseup', () => {
             canvas1.removeEventListener('mousemove', drawSelection);
-            // 記錄選取的區域
-            selection = {
-                x: startX,
-                y: startY,
-                width: endX - startX,
-                height: endY - startY
-            };
-            applyTransparency();
+            canvas1.removeEventListener('mousemove', moveSelection);
+            dragging = false;
+            applyTransparency(ctx1, canvas1, selection.x, selection.y, selection.width, selection.height);
             templateMatch();
         });
 
@@ -117,22 +118,55 @@
             ctx1.strokeStyle = 'red';
             ctx1.lineWidth = 2;
             ctx1.strokeRect(startX, startY, endX - startX, endY - startY);
+            selection = {
+                x: startX,
+                y: startY,
+                width: endX - startX,
+                height: endY - startY
+            };
         }
 
-        function applyTransparency() {
-            let imageData = ctx1.getImageData(0, 0, canvas1.width, canvas1.height);
+        function moveSelection(e) {
+            let offsetX = e.offsetX - startX;
+            let offsetY = e.offsetY - startY;
+            startX = e.offsetX;
+            startY = e.offsetY;
+
+            selection.x += offsetX;
+            selection.y += offsetY;
+
+            ctx1.clearRect(0, 0, canvas1.width, canvas1.height);
+            ctx1.drawImage(img1, 0, 0);
+            ctx1.strokeStyle = 'red';
+            ctx1.lineWidth = 2;
+            ctx1.strokeRect(selection.x, selection.y, selection.width, selection.height);
+
+            applyTransparency(ctx1, canvas1, selection.x, selection.y, selection.width, selection.height);
+            templateMatch();
+        }
+
+        function isInsideSelection(x, y) {
+            return x > selection.x && x < selection.x + selection.width &&
+                y > selection.y && y < selection.y + selection.height;
+        }
+
+        function applyTransparency(ctx, canvas, x0, y0, width, height) {
+            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             let data = imageData.data;
 
-            for (let y = 0; y < canvas1.height; y++) {
-                for (let x = 0; x < canvas1.width; x++) {
-                    if (x < selection.x || x > selection.x + selection.width ||
-                        y < selection.y || y > selection.y + selection.height) {
-                        let index = (y * canvas1.width + x) * 4;
+            for (let y = 0; y < canvas.height; y++) {
+                for (let x = 0; x < canvas.width; x++) {
+                    if (x < x0 || x > x0 + width ||
+                        y < y0 || y > y0 + height) {
+                        let index = (y * canvas.width + x) * 4;
                         data[index + 3] = 100; // 調整透明度
+                    } else {
+                        let index = (y * canvas.width + x) * 4;
+                        data[index + 3] = 255; // 恢復選取區域的不透明度
                     }
                 }
             }
-            ctx1.putImageData(imageData, 0, 0);
+            ctx.putImageData(imageData, 0, 0);
         }
 
         function templateMatch() {
@@ -149,11 +183,16 @@
             let minMax = cv.minMaxLoc(dst);
             let maxPoint = minMax.maxLoc;
 
-            // 畫出匹配結果的紅框
+            // 清空第二張圖，並將非匹配部分設為半透明
+            ctx2.clearRect(0, 0, canvas2.width, canvas2.height);
             ctx2.drawImage(img2, 0, 0);
+
+            // 畫出匹配結果的紅框
             ctx2.strokeStyle = 'red';
             ctx2.lineWidth = 2;
             ctx2.strokeRect(maxPoint.x, maxPoint.y, selection.width, selection.height);
+
+            applyTransparency(ctx2, canvas2, maxPoint.x, maxPoint.y, selection.width, selection.height);
 
             // 釋放記憶體
             src1.delete();
@@ -161,7 +200,6 @@
             template.delete();
             dst.delete();
         }
-
     </script>
 </body>
 
