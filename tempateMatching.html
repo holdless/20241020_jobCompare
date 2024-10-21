@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>影像選取與匹配</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        .image-container {
+            position: relative;
+            display: inline-block;
+        }
+
+        .highlight {
+            position: absolute;
+            border: 2px solid red;
+            pointer-events: none;
+        }
+
+        canvas {
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        #upload-container {
+            margin-bottom: 20px;
+        }
+
+        input[type="file"] {
+            display: block;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>影像選取與匹配</h1>
+    <div id="upload-container">
+        <label for="image1">上傳第一張影像:</label>
+        <input type="file" id="image1" accept="image/*">
+
+        <label for="image2">上傳第二張影像:</label>
+        <input type="file" id="image2" accept="image/*">
+    </div>
+    <div class="image-container">
+        <canvas id="canvas1"></canvas>
+    </div>
+    <div class="image-container">
+        <canvas id="canvas2"></canvas>
+    </div>
+    <script src="https://docs.opencv.org/4.x/opencv.js"></script>
+    <script>
+        let img1, img2;
+        let selection = null;
+        let startX, startY, endX, endY;
+        let canvas1 = document.getElementById('canvas1');
+        let canvas2 = document.getElementById('canvas2');
+        let ctx1 = canvas1.getContext('2d');
+        let ctx2 = canvas2.getContext('2d');
+
+        // 上傳影像處理
+        document.getElementById('image1').addEventListener('change', (e) => {
+            loadImage(e.target.files[0], canvas1, ctx1);
+        });
+        document.getElementById('image2').addEventListener('change', (e) => {
+            loadImage(e.target.files[0], canvas2, ctx2);
+        });
+
+        function loadImage(file, canvas, context) {
+            let reader = new FileReader();
+            reader.onload = function (event) {
+                let img = new Image();
+                img.onload = function () {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    context.drawImage(img, 0, 0);
+                    if (canvas === canvas1) {
+                        img1 = img;
+                    } else {
+                        img2 = img;
+                    }
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // 在第一張影像上選取區域
+        canvas1.addEventListener('mousedown', (e) => {
+            startX = e.offsetX;
+            startY = e.offsetY;
+            canvas1.addEventListener('mousemove', drawSelection);
+        });
+
+        canvas1.addEventListener('mouseup', () => {
+            canvas1.removeEventListener('mousemove', drawSelection);
+            // 記錄選取的區域
+            selection = {
+                x: startX,
+                y: startY,
+                width: endX - startX,
+                height: endY - startY
+            };
+            applyTransparency();
+            templateMatch();
+        });
+
+        function drawSelection(e) {
+            endX = e.offsetX;
+            endY = e.offsetY;
+            ctx1.clearRect(0, 0, canvas1.width, canvas1.height);
+            ctx1.drawImage(img1, 0, 0);
+            ctx1.strokeStyle = 'red';
+            ctx1.lineWidth = 2;
+            ctx1.strokeRect(startX, startY, endX - startX, endY - startY);
+        }
+
+        function applyTransparency() {
+            let imageData = ctx1.getImageData(0, 0, canvas1.width, canvas1.height);
+            let data = imageData.data;
+
+            for (let y = 0; y < canvas1.height; y++) {
+                for (let x = 0; x < canvas1.width; x++) {
+                    if (x < selection.x || x > selection.x + selection.width ||
+                        y < selection.y || y > selection.y + selection.height) {
+                        let index = (y * canvas1.width + x) * 4;
+                        data[index + 3] = 100; // 調整透明度
+                    }
+                }
+            }
+            ctx1.putImageData(imageData, 0, 0);
+        }
+
+        function templateMatch() {
+            if (!img1 || !img2 || !selection) return;
+
+            // 使用 OpenCV.js 進行模板匹配
+            let src1 = cv.imread(canvas1);
+            let src2 = cv.imread(canvas2);
+
+            let template = src1.roi(new cv.Rect(selection.x, selection.y, selection.width, selection.height));
+            let dst = new cv.Mat();
+
+            cv.matchTemplate(src2, template, dst, cv.TM_CCOEFF_NORMED);
+            let minMax = cv.minMaxLoc(dst);
+            let maxPoint = minMax.maxLoc;
+
+            // 畫出匹配結果的紅框
+            ctx2.drawImage(img2, 0, 0);
+            ctx2.strokeStyle = 'red';
+            ctx2.lineWidth = 2;
+            ctx2.strokeRect(maxPoint.x, maxPoint.y, selection.width, selection.height);
+
+            // 釋放記憶體
+            src1.delete();
+            src2.delete();
+            template.delete();
+            dst.delete();
+        }
+
+    </script>
+</body>
+
+</html>
