@@ -46,13 +46,21 @@
         <label for="image2">上傳第二張影像:</label>
         <input type="file" id="image2" accept="image/*">
     </div>
+
+    <div>
+        <h3>OCR 結果：</h3>
+        <p id="ocr-result">尚未選取</p>
+    </div>
+
     <div class="image-container">
         <canvas id="canvas1"></canvas>
     </div>
     <div class="image-container">
         <canvas id="canvas2"></canvas>
     </div>
+
     <script src="https://docs.opencv.org/4.x/opencv.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@v4.0.2/dist/tesseract.min.js"></script>
     <script>
         let img1, img2;
         let selection = null;
@@ -62,6 +70,7 @@
         let ctx1 = canvas1.getContext('2d');
         let ctx2 = canvas2.getContext('2d');
         let dragging = false;
+        let ocrResultElem = document.getElementById('ocr-result');
 
         // 上傳影像處理
         document.getElementById('image1').addEventListener('change', (e) => {
@@ -108,6 +117,7 @@
             dragging = false;
             applyTransparency(ctx1, canvas1, selection.x, selection.y, selection.width, selection.height);
             templateMatch();
+            performOCR();
         });
 
         function drawSelection(e) {
@@ -143,6 +153,7 @@
 
             applyTransparency(ctx1, canvas1, selection.x, selection.y, selection.width, selection.height);
             templateMatch();
+            performOCR();
         }
 
         function isInsideSelection(x, y) {
@@ -199,6 +210,35 @@
             src2.delete();
             template.delete();
             dst.delete();
+        }
+
+        function performOCR() {
+            if (!selection) return;
+
+            // 從畫布中提取選取的區域
+            let selectedImageData = ctx1.getImageData(selection.x, selection.y, selection.width, selection.height);
+
+            // 將選取的影像資料放入新的暫存 canvas，以便進行 OCR
+            let tempCanvas = document.createElement('canvas');
+            let tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = selection.width;
+            tempCanvas.height = selection.height;
+            tempCtx.putImageData(selectedImageData, 0, 0);
+
+            // 使用 Tesseract.js 進行 OCR
+            Tesseract.recognize(
+                tempCanvas.toDataURL(),  // 將影像轉換為 base64 URL 格式
+                'eng',                   // 設定識別語言，這裡使用英語
+                {
+                    logger: (m) => console.log(m), // 日誌輸出進度
+                }
+            ).then(({ data: { text } }) => {
+                // 顯示 OCR 識別結果
+                ocrResultElem.textContent = text || '無法識別文字';
+            }).catch((err) => {
+                console.error('OCR 發生錯誤: ', err);
+                ocrResultElem.textContent = 'OCR 發生錯誤';
+            });
         }
     </script>
 </body>
